@@ -1,0 +1,147 @@
+feed:
+  title: "Fisco & Contabilità — Fonti ufficiali"
+  description: "Feed filtrato di normativa, prassi e principi contabili italiani"
+  link: "https://example.invalid/feed.xml"
+  max_items: 250
+
+# Le pagine discovery vengono usate per trovare automaticamente eventuali RSS ufficiali.
+# Se un sito non espone un feed, il programma usa la pagina elenco come fallback.
+sources:
+  - name: "Gazzetta Ufficiale"
+    type: "discover_rss"
+    discovery_url: "https://www.gazzettaufficiale.it/"
+    fallback_url: "https://www.gazzettaufficiale.it/30giorni/serie_generale"
+    authority: 10
+
+  - name: "Agenzia delle Entrate"
+    type: "discover_rss"
+    discovery_url: "https://www.agenziaentrate.gov.it/portale/agenzia/agenzia-comunica/novita/news-rss"
+    fallback_url: "https://www.agenziaentrate.gov.it/portale/normativa-e-prassi"
+    authority: 10
+
+  - name: "Dipartimento delle Finanze - MEF"
+    type: "discover_rss"
+    discovery_url: "https://www.finanze.gov.it/it/rss/"
+    fallback_url: "https://www.finanze.gov.it/it/archivi/notizie/"
+    authority: 10
+
+  - name: "OIC"
+    type: "rss_or_html"
+    urls:
+      - "https://www.fondazioneoic.eu/category/news/feed/"
+      - "https://www.fondazioneoic.eu/category/news/"
+    authority: 10
+
+# Una notizia passa se supera min_score. I termini ad alto peso servono a non perdere
+# provvedimenti importanti anche quando il titolo è generico.
+filter:
+  min_score: 4
+  always_include_sources:
+    - "OIC"
+
+  terms:
+    # IVA e fatturazione
+    "iva": 6
+    "imposta sul valore aggiunto": 8
+    "dpr 633": 9
+    "fattura elettronica": 8
+    "fatturazione elettronica": 8
+    "corrispettivi": 5
+    "esterometro": 7
+    "reverse charge": 7
+    "split payment": 7
+    "liquidazione iva": 7
+
+    # Imposte dirette
+    "irpef": 8
+    "ires": 8
+    "irap": 8
+    "tuiR": 8
+    "imposte sui redditi": 7
+    "reddito d'impresa": 7
+    "reddito di impresa": 7
+    "lavoro autonomo": 4
+    "regime forfetario": 8
+    "regime forfettario": 8
+
+    # Dichiarativi / versamenti
+    "dichiarazione dei redditi": 7
+    "modello redditi": 7
+    "modello 730": 7
+    "730": 4
+    "modello iva": 7
+    "cu": 3
+    "certificazione unica": 7
+    "770": 5
+    "f24": 7
+    "versamento": 3
+    "acconto": 3
+    "saldo": 2
+    "ritenuta": 5
+    "sostituto d'imposta": 6
+    "compensazione": 5
+
+    # Crediti / agevolazioni
+    "credito d'imposta": 8
+    "crediti d'imposta": 8
+    "agevolazione fiscale": 6
+    "agevolazioni fiscali": 6
+    "detrazione": 4
+    "deduzione": 4
+    "bonus": 3
+    "superbonus": 6
+
+    # Accertamento / riscossione / contenzioso
+    "accertamento": 6
+    "ravvedimento": 7
+    "sanzion": 4
+    "riscossione": 6
+    "cartella": 5
+    "rottamazione": 7
+    "definizione agevolata": 7
+    "contenzioso tributario": 8
+    "processo tributario": 8
+    "statuto del contribuente": 8
+    "interpello": 6
+    "codice tributo": 7
+
+    # Contabilità / bilancio / OIC
+    "contabilità": 7
+    "contabilita": 7
+    "bilancio": 5
+    "principio contabile": 8
+    "principi contabili": 8
+    "oic": 9
+    "scritture contabili": 8
+    "bilanci di liquidazione": 8
+    "rendiconto finanziario": 7
+    "micro imprese": 5
+    "piccole imprese": 4
+
+    # Altre imposte rilevanti
+    "imposta di registro": 7
+    "imposta di bollo": 7
+    "successione": 4
+    "donazione": 4
+    "imu": 6
+    "tribut": 4
+    "fiscal": 4
+
+    # Società / operazioni straordinarie con rilevanza fiscale
+    "fusione": 3
+    "scissione": 3
+    "conferimento": 3
+    "trasformazione societaria": 4
+    "liquidazione societaria": 4
+
+  # Termini che abbassano il punteggio quando chiaramente estranei alla materia fiscale.
+  negative_terms:
+    "concorso pubblico": -8
+    "forze armate": -6
+    "stupefacenti": -8
+    "medicinali": -5
+    "pesca": -5
+    "caccia": -5
+    "università": -3
+    "universita": -3
+    "protezione civile": -3
