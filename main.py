@@ -20,11 +20,14 @@ from dateutil import parser as dateparser
 
 
 # ============================================================
-# CONFIGURAZIONE GENERALE
+# CONFIGURAZIONE
 # ============================================================
 
 ROOT = Path(__file__).resolve().parent
-CONFIG = yaml.safe_load((ROOT / "config.yml").read_text(encoding="utf-8"))
+
+CONFIG = yaml.safe_load(
+    (ROOT / "config.yml").read_text(encoding="utf-8")
+)
 
 DOCS_DIR = ROOT / "docs"
 ARTICLES_DIR = DOCS_DIR / "articoli"
@@ -33,24 +36,274 @@ OUT = DOCS_DIR / "feed.xml"
 PUBLIC_BASE = "https://ittsadele.github.io/rss-fiscale-italia"
 
 UA = (
-    "Mozilla/5.0 (compatible; FiscoContabilitaRSS/2.0; "
+    "Mozilla/5.0 "
+    "(compatible; FiscoContabilitaRSS/3.0; "
     "+https://ittsadele.github.io/rss-fiscale-italia/)"
 )
 
 TIMEOUT = 30
-
-# Quanti caratteri massimi proviamo a estrarre dalla fonte.
-MAX_SOURCE_TEXT = 14000
-
-# Lunghezza indicativa della sintesi che comparirà nel reader.
-MAX_SUMMARY_CHARS = 2800
-
-# Evita di sovraccaricare i siti ufficiali.
 REQUEST_DELAY = 0.15
+
+MAX_SOURCE_TEXT = 16000
+MAX_SUMMARY_CHARS = 3000
 
 
 # ============================================================
-# MODELLI DATI
+# FILTRO FISCALE/CONTABILE STRETTO
+# ============================================================
+
+# Termini "forti":
+# se compaiono, indicano con buona probabilità una notizia
+# pertinente al lavoro fiscale/contabile.
+
+STRONG_TERMS = {
+    # IVA
+    "iva": 8,
+    "imposta sul valore aggiunto": 10,
+    "dpr 633": 10,
+    "d.p.r. 633": 10,
+    "fattura elettronica": 10,
+    "fatturazione elettronica": 10,
+    "corrispettivi telematici": 9,
+    "reverse charge": 9,
+    "split payment": 9,
+    "esterometro": 9,
+    "liquidazione iva": 9,
+    "dichiarazione iva": 10,
+    "registro iva": 8,
+
+    # Imposte dirette
+    "irpef": 10,
+    "ires": 10,
+    "irap": 10,
+    "tuir": 10,
+    "dpr 917": 10,
+    "d.p.r. 917": 10,
+    "reddito d'impresa": 8,
+    "reddito di impresa": 8,
+    "reddito di lavoro autonomo": 8,
+    "redditi diversi": 6,
+
+    # Regimi fiscali
+    "regime forfetario": 10,
+    "regime forfettario": 10,
+    "regime dei minimi": 8,
+    "regime fiscale": 5,
+
+    # Dichiarazioni
+    "modello redditi": 10,
+    "modello 730": 10,
+    "730/202": 8,
+    "modello 770": 10,
+    "certificazione unica": 10,
+    "dichiarazione dei redditi": 10,
+    "dichiarazione fiscale": 8,
+
+    # Versamenti / ritenute
+    "f24": 9,
+    "ritenuta d'acconto": 10,
+    "ritenute d'acconto": 10,
+    "sostituto d'imposta": 9,
+    "sostituti d'imposta": 9,
+    "compensazione crediti": 8,
+    "codice tributo": 10,
+
+    # Crediti / agevolazioni fiscali
+    "credito d'imposta": 10,
+    "crediti d'imposta": 10,
+    "agevolazione fiscale": 8,
+    "agevolazioni fiscali": 8,
+    "detrazione fiscale": 8,
+    "detrazioni fiscali": 8,
+    "deduzione fiscale": 8,
+
+    # Accertamento
+    "accertamento tributario": 10,
+    "accertamento fiscale": 10,
+    "avviso di accertamento": 10,
+    "ravvedimento operoso": 10,
+    "sanzioni tributarie": 10,
+    "sanzione tributaria": 10,
+
+    # Riscossione
+    "riscossione": 7,
+    "cartella di pagamento": 10,
+    "cartella esattoriale": 10,
+    "definizione agevolata": 8,
+    "rottamazione": 8,
+
+    # Contenzioso
+    "contenzioso tributario": 10,
+    "processo tributario": 10,
+    "giustizia tributaria": 10,
+    "corte di giustizia tributaria": 10,
+
+    # Interpelli / prassi
+    "interpello": 8,
+    "risposta a interpello": 10,
+    "risoluzione agenzia delle entrate": 10,
+    "circolare agenzia delle entrate": 10,
+    "provvedimento agenzia delle entrate": 10,
+
+    # Contabilità / bilanci / OIC
+    "oic": 12,
+    "organismo italiano di contabilità": 12,
+    "principio contabile": 10,
+    "principi contabili": 10,
+    "bilancio d'esercizio": 10,
+    "bilancio consolidato": 8,
+    "scritture contabili": 9,
+    "libri contabili": 8,
+
+    # Imposte indirette
+    "imposta di registro": 10,
+    "imposta di bollo": 10,
+    "imposta sulle successioni": 10,
+    "imposta sulle donazioni": 10,
+    "successioni e donazioni": 8,
+    "imu": 8,
+
+    # Operazioni societarie fiscalmente rilevanti
+    "fusione societaria": 7,
+    "scissione societaria": 7,
+    "conferimento d'azienda": 8,
+    "cessione d'azienda": 8,
+    "trasformazione societaria": 7,
+
+    # Adempimenti
+    "adempimenti fiscali": 9,
+    "adempimento fiscale": 9,
+    "scadenze fiscali": 8,
+
+    # Agenzia Entrate
+    "agenzia delle entrate": 4,
+
+    # Tributi molto specifici
+    "imposta sostitutiva": 8,
+    "imposte sui redditi": 8,
+}
+
+
+# Termini medi.
+# Da soli NON bastano.
+# Servono insieme ad almeno un altro segnale fiscale.
+
+MEDIUM_TERMS = {
+    "contabilità": 3,
+    "contabile": 2,
+    "bilancio": 3,
+    "tributario": 3,
+    "tributaria": 3,
+    "tributi": 2,
+    "fiscale": 2,
+    "fisco": 3,
+    "imposta": 2,
+    "imposte": 2,
+    "dichiarazione": 2,
+    "versamento": 2,
+    "versamenti": 2,
+    "detrazione": 2,
+    "deduzione": 2,
+    "agevolazione": 2,
+    "agevolazioni": 2,
+    "bonus": 1,
+    "reddito": 2,
+    "redditi": 2,
+    "contribuente": 2,
+    "contribuenti": 2,
+    "fattura": 2,
+    "fatturazione": 2,
+    "ritenuta": 2,
+    "aliquota": 2,
+    "aliquote": 2,
+}
+
+
+# Termini che indicano spesso notizie non pertinenti.
+NEGATIVE_TERMS = {
+    "concorso pubblico": -12,
+    "concorsi pubblici": -12,
+    "personale sanitario": -10,
+    "servizio sanitario": -10,
+    "sanità": -8,
+    "sanitario": -6,
+
+    "difesa": -8,
+    "forze armate": -8,
+
+    "pesca": -8,
+    "acquacoltura": -8,
+
+    "infrastrutture": -6,
+    "trasporti": -6,
+
+    "protezione civile": -6,
+    "emergenza": -3,
+
+    "università": -6,
+    "scuola": -6,
+    "istruzione": -5,
+
+    "cultura": -5,
+    "beni culturali": -6,
+
+    "sport": -7,
+    "sportivo": -5,
+
+    "turismo": -6,
+    "turistico": -5,
+
+    "ambiente": -5,
+    "ambientale": -5,
+
+    "energia": -4,
+    "energetico": -4,
+
+    "agricoltura": -3,
+    "agricolo": -3,
+
+    "forestale": -5,
+
+    "medicinale": -6,
+    "farmaco": -6,
+    "farmaceutico": -6,
+
+    "universitario": -5,
+    "ricerca scientifica": -4,
+
+    "militare": -7,
+
+    "immigrazione": -5,
+    "asilo": -5,
+
+    "protezione internazionale": -5,
+
+    "appalti pubblici": -3,
+    "opera pubblica": -5,
+}
+
+
+# Fonti dove vogliamo essere un po' più permissivi,
+# ma NON includere tutto indiscriminatamente.
+TRUSTED_FISCAL_SOURCES = {
+    "Agenzia delle Entrate",
+    "Dipartimento delle Finanze",
+    "MEF",
+    "OIC",
+    "Fondazione OIC",
+}
+
+
+# Soglia finale.
+MIN_SCORE = 8
+
+
+# Almeno uno di questi deve essere vero.
+MIN_STRONG_MATCHES = 1
+
+
+# ============================================================
+# MODELLO DATI
 # ============================================================
 
 @dataclass
@@ -66,12 +319,13 @@ class Item:
 
     full_text: str = ""
     rich_summary: str = ""
+
     local_url: str = ""
     local_filename: str = ""
 
 
 # ============================================================
-# HTTP
+# SESSIONE HTTP
 # ============================================================
 
 SESSION = requests.Session()
@@ -79,10 +333,13 @@ SESSION = requests.Session()
 SESSION.headers.update({
     "User-Agent": UA,
     "Accept": (
-        "text/html,application/xhtml+xml,"
-        "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
+        "text/html,"
+        "application/xhtml+xml,"
+        "application/rss+xml,"
+        "application/xml;q=0.9,"
+        "*/*;q=0.8"
     ),
-    "Accept-Language": "it-IT,it;q=0.9,en;q=0.7",
+    "Accept-Language": "it-IT,it;q=0.9,en;q=0.6",
 })
 
 
@@ -96,38 +353,66 @@ def get(url: str) -> requests.Response:
     )
 
     r.raise_for_status()
+
     return r
 
 
 # ============================================================
-# TESTO / DATE
+# NORMALIZZAZIONE TESTO
 # ============================================================
 
 def norm_text(value: str) -> str:
     if not value:
         return ""
 
-    text = BeautifulSoup(value, "html.parser").get_text(" ", strip=True)
+    soup = BeautifulSoup(
+        value,
+        "html.parser"
+    )
+
+    text = soup.get_text(
+        " ",
+        strip=True
+    )
+
     text = html.unescape(text)
-    text = re.sub(r"\s+", " ", text)
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
 
     return text.strip()
 
+
+# ============================================================
+# DATE
+# ============================================================
 
 def parse_date(value: str | None) -> datetime:
     if not value:
         return datetime.now(timezone.utc)
 
     try:
-        d = dateparser.parse(value, dayfirst=True)
+        d = dateparser.parse(
+            value,
+            dayfirst=True
+        )
 
         if d.tzinfo is None:
-            d = d.replace(tzinfo=timezone.utc)
+            d = d.replace(
+                tzinfo=timezone.utc
+            )
 
-        return d.astimezone(timezone.utc)
+        return d.astimezone(
+            timezone.utc
+        )
 
     except Exception:
-        return datetime.now(timezone.utc)
+        return datetime.now(
+            timezone.utc
+        )
 
 
 def italian_date(d: datetime) -> str:
@@ -147,34 +432,74 @@ def italian_date(d: datetime) -> str:
         "dicembre",
     ]
 
-    return f"{d.day} {months[d.month]} {d.year}"
+    return (
+        f"{d.day} "
+        f"{months[d.month]} "
+        f"{d.year}"
+    )
 
 
 # ============================================================
-# RACCOLTA RSS
+# PARSING RSS
 # ============================================================
 
-def parse_feed(url: str, source_name: str) -> list[Item]:
+def parse_feed(
+    url: str,
+    source_name: str
+) -> list[Item]:
+
     r = get(url)
-    parsed = feedparser.parse(r.content)
+
+    parsed = feedparser.parse(
+        r.content
+    )
 
     out: list[Item] = []
 
     for e in parsed.entries:
-        title = norm_text(getattr(e, "title", ""))
-        link = getattr(e, "link", "")
+
+        title = norm_text(
+            getattr(
+                e,
+                "title",
+                ""
+            )
+        )
+
+        link = getattr(
+            e,
+            "link",
+            ""
+        )
 
         summary = norm_text(
-            getattr(e, "summary", "")
-            or getattr(e, "description", "")
+            getattr(
+                e,
+                "summary",
+                ""
+            )
+            or getattr(
+                e,
+                "description",
+                ""
+            )
         )
 
         published = parse_date(
-            getattr(e, "published", None)
-            or getattr(e, "updated", None)
+            getattr(
+                e,
+                "published",
+                None
+            )
+            or getattr(
+                e,
+                "updated",
+                None
+            )
         )
 
         if title and link:
+
             out.append(
                 Item(
                     title=title,
@@ -188,22 +513,48 @@ def parse_feed(url: str, source_name: str) -> list[Item]:
     return out
 
 
-def discover_rss(page_url: str) -> list[str]:
+# ============================================================
+# SCOPERTA RSS
+# ============================================================
+
+def discover_rss(
+    page_url: str
+) -> list[str]:
+
     r = get(page_url)
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    soup = BeautifulSoup(
+        r.text,
+        "html.parser"
+    )
 
     feeds: list[str] = []
 
-    for tag in soup.find_all(["link", "a"], href=True):
-        href = tag.get("href", "")
+    for tag in soup.find_all(
+        ["link", "a"],
+        href=True
+    ):
 
-        typ = (tag.get("type") or "").lower()
+        href = tag.get(
+            "href",
+            ""
+        )
+
+        typ = (
+            tag.get("type")
+            or ""
+        ).lower()
 
         txt = (
-            tag.get_text(" ", strip=True)
+            tag.get_text(
+                " ",
+                strip=True
+            )
             + " "
-            + str(tag.get("title") or "")
+            + str(
+                tag.get("title")
+                or ""
+            )
         ).lower()
 
         if (
@@ -213,13 +564,24 @@ def discover_rss(page_url: str) -> list[str]:
             or "feed" in href.lower()
             or "rss" in txt
         ):
-            u = urljoin(page_url, href)
+
+            u = urljoin(
+                page_url,
+                href
+            )
 
             if (
-                urlparse(u).scheme in {"http", "https"}
+                urlparse(u).scheme
+                in {"http", "https"}
                 and u not in feeds
                 and not u.lower().endswith(
-                    (".png", ".jpg", ".gif", ".svg")
+                    (
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".gif",
+                        ".svg",
+                    )
                 )
             ):
                 feeds.append(u)
@@ -228,32 +590,59 @@ def discover_rss(page_url: str) -> list[str]:
 
 
 # ============================================================
-# FALLBACK PAGINE ELENCO
+# FALLBACK HTML
 # ============================================================
 
-def scrape_listing(url: str, source_name: str) -> list[Item]:
+def scrape_listing(
+    url: str,
+    source_name: str
+) -> list[Item]:
+
     r = get(url)
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    soup = BeautifulSoup(
+        r.text,
+        "html.parser"
+    )
 
     host = urlparse(url).netloc
 
     out: list[Item] = []
     seen: set[str] = set()
 
-    for a in soup.find_all("a", href=True):
-        title = norm_text(a.get_text(" ", strip=True))
+    for a in soup.find_all(
+        "a",
+        href=True
+    ):
+
+        title = norm_text(
+            a.get_text(
+                " ",
+                strip=True
+            )
+        )
 
         if len(title) < 18:
             continue
 
-        link = urljoin(url, a["href"])
+        link = urljoin(
+            url,
+            a["href"]
+        )
+
         p = urlparse(link)
 
-        if p.netloc != host or link in seen:
+        if (
+            p.netloc != host
+            or link in seen
+        ):
             continue
 
-        low = (title + " " + link).lower()
+        low = (
+            title
+            + " "
+            + link
+        ).lower()
 
         if any(
             x in low
@@ -274,41 +663,34 @@ def scrape_listing(url: str, source_name: str) -> list[Item]:
         seen.add(link)
 
         parent = a.find_parent(
-            ["article", "li", "div", "tr"]
+            [
+                "article",
+                "li",
+                "div",
+                "tr"
+            ]
         )
 
         summary = norm_text(
-            parent.get_text(" ", strip=True)
+            parent.get_text(
+                " ",
+                strip=True
+            )
             if parent
             else title
-        )[:1200]
+        )[:1500]
 
-        m = re.search(
-            r"\b("
-            r"\d{1,2}[/-]\d{1,2}[/-]\d{4}"
-            r"|"
-            r"\d{4}-\d{2}-\d{2}"
-            r"|"
-            r"\d{1,2}\s+"
-            r"(?:gennaio|febbraio|marzo|aprile|maggio|giugno|"
-            r"luglio|agosto|settembre|ottobre|novembre|dicembre)"
-            r"\s+\d{4}"
-            r")\b",
-            summary,
-            re.I,
-        )
-
-        published = parse_date(
-            m.group(1) if m else None
+        published = datetime.now(
+            timezone.utc
         )
 
         out.append(
             Item(
-                title,
-                link,
-                summary,
-                source_name,
-                published,
+                title=title,
+                link=link,
+                summary=summary,
+                source=source_name,
+                published=published,
             )
         )
 
@@ -319,90 +701,364 @@ def scrape_listing(url: str, source_name: str) -> list[Item]:
 # RACCOLTA FONTI
 # ============================================================
 
-def collect_source(src: dict) -> list[Item]:
+def collect_source(
+    src: dict
+) -> list[Item]:
+
     name = src["name"]
 
     items: list[Item] = []
 
     try:
+
         if src["type"] == "discover_rss":
-            discovered = discover_rss(
+
+            feeds = discover_rss(
                 src["discovery_url"]
             )
 
-            for u in discovered:
+            for feed_url in feeds:
+
                 try:
-                    got = parse_feed(u, name)
+
+                    got = parse_feed(
+                        feed_url,
+                        name
+                    )
 
                     if got:
-                        items.extend(got)
+                        items.extend(
+                            got
+                        )
 
                 except Exception as e:
+
                     print(
-                        f"[WARN] {name}: feed {u}: {e}",
-                        file=sys.stderr,
+                        f"[WARN] "
+                        f"{name}: "
+                        f"{feed_url}: "
+                        f"{e}",
+                        file=sys.stderr
                     )
 
             if not items:
+
                 items = scrape_listing(
                     src["fallback_url"],
-                    name,
+                    name
                 )
 
         elif src["type"] == "rss_or_html":
+
             for u in src["urls"]:
+
                 try:
-                    got = parse_feed(u, name)
+
+                    got = parse_feed(
+                        u,
+                        name
+                    )
 
                     if got:
-                        items.extend(got)
+                        items.extend(
+                            got
+                        )
+
                         break
 
                 except Exception:
+
                     try:
-                        got = scrape_listing(u, name)
+
+                        got = scrape_listing(
+                            u,
+                            name
+                        )
 
                         if got:
-                            items.extend(got)
+                            items.extend(
+                                got
+                            )
+
                             break
 
                     except Exception as e:
+
                         print(
-                            f"[WARN] {name}: {u}: {e}",
-                            file=sys.stderr,
+                            f"[WARN] "
+                            f"{name}: "
+                            f"{u}: "
+                            f"{e}",
+                            file=sys.stderr
                         )
 
     except Exception as e:
+
         print(
-            f"[WARN] source {name}: {e}",
-            file=sys.stderr,
+            f"[WARN] "
+            f"source {name}: "
+            f"{e}",
+            file=sys.stderr
         )
 
     return items
 
 
 # ============================================================
+# MATCH TERMINI
+# ============================================================
+
+def term_matches(
+    text: str,
+    term: str
+) -> bool:
+
+    text = text.lower()
+    term = term.lower()
+
+    # Per termini molto corti come IVA, IMU, OIC
+    # evitiamo match dentro altre parole.
+
+    if len(term) <= 4 and term.isalnum():
+
+        pattern = (
+            r"(?<![a-z0-9])"
+            + re.escape(term)
+            + r"(?![a-z0-9])"
+        )
+
+        return bool(
+            re.search(
+                pattern,
+                text
+            )
+        )
+
+    return term in text
+
+
+# ============================================================
+# FILTRO DI RILEVANZA
+# ============================================================
+
+def relevance_score(
+    item: Item
+) -> tuple[int, int, int]:
+
+    title = item.title.lower()
+
+    text = (
+        item.title
+        + " "
+        + item.summary
+    ).lower()
+
+    score = 0
+    strong_matches = 0
+    medium_matches = 0
+
+    # --------------------------------------------
+    # TERMINI FORTI
+    # --------------------------------------------
+
+    for term, weight in STRONG_TERMS.items():
+
+        if term_matches(
+            text,
+            term
+        ):
+
+            score += weight
+            strong_matches += 1
+
+            # Se appare nel titolo,
+            # vale ancora di più.
+
+            if term_matches(
+                title,
+                term
+            ):
+                score += 3
+
+    # --------------------------------------------
+    # TERMINI MEDI
+    # --------------------------------------------
+
+    for term, weight in MEDIUM_TERMS.items():
+
+        if term_matches(
+            text,
+            term
+        ):
+
+            score += weight
+            medium_matches += 1
+
+    # --------------------------------------------
+    # TERMINI NEGATIVI
+    # --------------------------------------------
+
+    for term, penalty in NEGATIVE_TERMS.items():
+
+        if term_matches(
+            text,
+            term
+        ):
+
+            score += penalty
+
+    # --------------------------------------------
+    # BONUS PER COMBINAZIONI FISCALI
+    # --------------------------------------------
+
+    tax_context = any(
+        term_matches(
+            text,
+            term
+        )
+        for term in [
+            "iva",
+            "irpef",
+            "ires",
+            "irap",
+            "tuir",
+            "tributario",
+            "tributaria",
+            "fiscale",
+            "agenzia delle entrate",
+            "credito d'imposta",
+            "imposta di registro",
+            "oic",
+        ]
+    )
+
+    accounting_context = any(
+        term_matches(
+            text,
+            term
+        )
+        for term in [
+            "contabilità",
+            "bilancio",
+            "scritture contabili",
+            "principio contabile",
+            "oic",
+        ]
+    )
+
+    if tax_context and medium_matches >= 2:
+        score += 3
+
+    if accounting_context:
+        score += 2
+
+    # Agenzia Entrate/MEF/OIC:
+    # leggero bonus ma mai inclusione automatica.
+
+    if item.source in TRUSTED_FISCAL_SOURCES:
+        score += 2
+
+    return (
+        score,
+        strong_matches,
+        medium_matches,
+    )
+
+
+# ============================================================
+# FILTRO FINALE
+# ============================================================
+
+def apply_filter(
+    items: Iterable[Item]
+) -> list[Item]:
+
+    out: list[Item] = []
+
+    for item in items:
+
+        (
+            score,
+            strong_matches,
+            medium_matches
+        ) = relevance_score(
+            item
+        )
+
+        item.score = score
+
+        # --------------------------------------------
+        # REGOLA PRINCIPALE
+        # --------------------------------------------
+
+        if score < MIN_SCORE:
+            continue
+
+        # Deve esserci almeno un termine forte,
+        # salvo casi contabili molto evidenti.
+
+        if strong_matches < MIN_STRONG_MATCHES:
+
+            text = (
+                item.title
+                + " "
+                + item.summary
+            ).lower()
+
+            obvious_accounting = any(
+                term_matches(
+                    text,
+                    x
+                )
+                for x in [
+                    "bilancio d'esercizio",
+                    "principio contabile",
+                    "principi contabili",
+                    "scritture contabili",
+                ]
+            )
+
+            if not obvious_accounting:
+                continue
+
+        item.category = classify(
+            item.title
+            + " "
+            + item.summary
+        )
+
+        out.append(item)
+
+    return out
+
+
+# ============================================================
 # CLASSIFICAZIONE
 # ============================================================
 
-def classify(text: str) -> str:
+def classify(
+    text: str
+) -> str:
+
     t = text.lower()
 
     groups = [
+
         (
             "IVA / Fatturazione",
             [
                 "iva",
-                "valore aggiunto",
-                "fattur",
-                "corrispettiv",
+                "imposta sul valore aggiunto",
+                "fattura elettronica",
+                "fatturazione elettronica",
                 "reverse charge",
                 "split payment",
+                "corrispettivi telematici",
             ],
         ),
 
         (
-            "Imposte dirette",
+            "IRPEF / IRES / IRAP",
             [
                 "irpef",
                 "ires",
@@ -410,8 +1066,6 @@ def classify(text: str) -> str:
                 "tuir",
                 "reddito d'impresa",
                 "reddito di impresa",
-                "forfet",
-                "forfett",
             ],
         ),
 
@@ -420,12 +1074,11 @@ def classify(text: str) -> str:
             [
                 "730",
                 "770",
+                "modello redditi",
                 "certificazione unica",
-                "dichiarazione",
                 "f24",
-                "versament",
-                "ritenut",
-                "compensaz",
+                "ritenuta",
+                "compensazione",
             ],
         ),
 
@@ -434,24 +1087,31 @@ def classify(text: str) -> str:
             [
                 "credito d'imposta",
                 "crediti d'imposta",
-                "bonus",
-                "detraz",
-                "deduz",
-                "agevolaz",
+                "agevolazione fiscale",
+                "detrazione fiscale",
+                "bonus fiscale",
             ],
         ),
 
         (
             "Accertamento / Riscossione",
             [
-                "accert",
-                "riscoss",
-                "cartell",
-                "ravved",
-                "sanzion",
-                "contenzioso",
-                "interpello",
-                "codice tributo",
+                "accertamento tributario",
+                "accertamento fiscale",
+                "riscossione",
+                "cartella",
+                "ravvedimento operoso",
+                "sanzioni tributarie",
+            ],
+        ),
+
+        (
+            "Contenzioso tributario",
+            [
+                "contenzioso tributario",
+                "processo tributario",
+                "giustizia tributaria",
+                "corte di giustizia tributaria",
             ],
         ),
 
@@ -461,97 +1121,35 @@ def classify(text: str) -> str:
                 "oic",
                 "principio contabile",
                 "principi contabili",
-                "contabil",
-                "bilancio",
+                "bilancio d'esercizio",
                 "scritture contabili",
             ],
         ),
 
         (
-            "Tributi",
+            "Altri tributi",
             [
-                "tribut",
-                "fiscal",
-                "registro",
-                "bollo",
+                "imposta di registro",
+                "imposta di bollo",
+                "successioni",
+                "donazioni",
                 "imu",
-                "succession",
-                "donaz",
             ],
         ),
     ]
 
-    for name, keys in groups:
-        if any(k in t for k in keys):
+    for name, terms in groups:
+
+        if any(
+            term_matches(
+                t,
+                term
+            )
+            for term in terms
+        ):
             return name
 
-    return "Fisco"
-
-
-# ============================================================
-# FILTRO
-# ============================================================
-
-def apply_filter(
-    items: Iterable[Item],
-) -> list[Item]:
-
-    fc = CONFIG["filter"]
-
-    terms = {
-        k.lower(): int(v)
-        for k, v in fc["terms"].items()
-    }
-
-    neg = {
-        k.lower(): int(v)
-        for k, v in fc.get(
-            "negative_terms",
-            {},
-        ).items()
-    }
-
-    always = set(
-        fc.get(
-            "always_include_sources",
-            [],
-        )
-    )
-
-    min_score = int(fc["min_score"])
-
-    out: list[Item] = []
-
-    for it in items:
-        text = (
-            f"{it.title} {it.summary}"
-        ).lower()
-
-        score = sum(
-            weight
-            for term, weight in terms.items()
-            if term in text
-        )
-
-        score += sum(
-            weight
-            for term, weight in neg.items()
-            if term in text
-        )
-
-        if (
-            it.source in always
-            and score < min_score
-        ):
-            score = min_score
-
-        it.score = score
-        it.category = classify(text)
-
-        if score >= min_score:
-            out.append(it)
-
-    return out
+    return "Fisco / Tributi"
 
 
 # ============================================================
@@ -559,40 +1157,44 @@ def apply_filter(
 # ============================================================
 
 def dedupe(
-    items: Iterable[Item],
+    items: Iterable[Item]
 ) -> list[Item]:
 
     seen: set[str] = set()
+
     out: list[Item] = []
 
-    for it in sorted(
+    for item in sorted(
         items,
         key=lambda x: x.published,
-        reverse=True,
+        reverse=True
     ):
 
         key = (
-            it.link
+            item.link
             .split("#", 1)[0]
             .rstrip("/")
         )
 
         if not key:
+
             key = hashlib.sha1(
-                it.title.encode()
+                item.title.encode(
+                    "utf-8"
+                )
             ).hexdigest()
 
         if key in seen:
             continue
 
         seen.add(key)
-        out.append(it)
+        out.append(item)
 
     return out
 
 
 # ============================================================
-# ESTRAZIONE ARTICOLO / PROVVEDIMENTO
+# PULIZIA PAGINE
 # ============================================================
 
 BOILERPLATE_PATTERNS = [
@@ -615,7 +1217,10 @@ BOILERPLATE_PATTERNS = [
 ]
 
 
-def clean_page(soup: BeautifulSoup) -> None:
+def clean_page(
+    soup: BeautifulSoup
+) -> None:
+
     for tag in soup(
         [
             "script",
@@ -632,20 +1237,35 @@ def clean_page(soup: BeautifulSoup) -> None:
         tag.decompose()
 
 
-def extract_main_text(url: str) -> str:
+# ============================================================
+# ESTRAZIONE TESTO ARTICOLO
+# ============================================================
+
+def extract_main_text(
+    url: str
+) -> str:
+
     try:
+
         r = get(url)
 
     except Exception as e:
+
         print(
-            f"[WARN] apertura articolo {url}: {e}",
-            file=sys.stderr,
+            f"[WARN] "
+            f"apertura articolo "
+            f"{url}: {e}",
+            file=sys.stderr
         )
+
         return ""
 
     content_type = (
         r.headers
-        .get("Content-Type", "")
+        .get(
+            "Content-Type",
+            ""
+        )
         .lower()
     )
 
@@ -653,9 +1273,10 @@ def extract_main_text(url: str) -> str:
         return ""
 
     try:
+
         soup = BeautifulSoup(
             r.text,
-            "html.parser",
+            "html.parser"
         )
 
     except Exception:
@@ -682,42 +1303,52 @@ def extract_main_text(url: str) -> str:
     ]
 
     for selector in selectors:
-        for node in soup.select(selector):
+
+        for node in soup.select(
+            selector
+        ):
+
             text = norm_text(
                 node.get_text(
                     " ",
-                    strip=True,
+                    strip=True
                 )
             )
 
             if len(text) >= 250:
-                candidates.append(text)
+
+                candidates.append(
+                    text
+                )
 
     if candidates:
+
         text = max(
             candidates,
-            key=len,
+            key=len
         )
 
     else:
-        body = soup.body or soup
+
+        body = (
+            soup.body
+            or soup
+        )
 
         text = norm_text(
             body.get_text(
                 " ",
-                strip=True,
+                strip=True
             )
         )
-
-    if not text:
-        return ""
 
     pieces = []
 
     for piece in re.split(
         r"(?<=[.!?;:])\s+",
-        text,
+        text
     ):
+
         p = piece.strip()
 
         if len(p) < 25:
@@ -733,26 +1364,33 @@ def extract_main_text(url: str) -> str:
 
         pieces.append(p)
 
-    cleaned = " ".join(pieces)
+    cleaned = " ".join(
+        pieces
+    )
 
     cleaned = re.sub(
         r"\s+",
         " ",
-        cleaned,
+        cleaned
     ).strip()
 
-    return cleaned[:MAX_SOURCE_TEXT]
+    return cleaned[
+        :MAX_SOURCE_TEXT
+    ]
 
 
 # ============================================================
-# SINTESI SENZA AI
+# SUDDIVISIONE FRASI
 # ============================================================
 
-def sentence_split(text: str) -> list[str]:
+def sentence_split(
+    text: str
+) -> list[str]:
+
     text = re.sub(
         r"\s+",
         " ",
-        text,
+        text
     ).strip()
 
     if not text:
@@ -760,72 +1398,24 @@ def sentence_split(text: str) -> list[str]:
 
     sentences = re.split(
         r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])",
-        text,
+        text
     )
 
     return [
         s.strip()
         for s in sentences
-        if len(s.strip()) >= 35
+        if len(
+            s.strip()
+        ) >= 35
     ]
 
 
-def important_keywords(
-    item: Item,
-) -> list[str]:
-
-    base = [
-        "iva",
-        "irpef",
-        "ires",
-        "irap",
-        "imposta",
-        "imposte",
-        "tribut",
-        "fiscal",
-        "fattur",
-        "dichiar",
-        "credito",
-        "bonus",
-        "agevol",
-        "detraz",
-        "deduz",
-        "ritenut",
-        "versament",
-        "accert",
-        "riscoss",
-        "sanzion",
-        "contabil",
-        "bilancio",
-        "oic",
-        "reddito",
-        "contribuent",
-        "decorren",
-        "entrata in vigore",
-        "modifica",
-        "disposizioni",
-    ]
-
-    if item.category == "IVA / Fatturazione":
-        base += [
-            "valore aggiunto",
-            "fattura elettronica",
-            "corrispettivi",
-            "reverse charge",
-        ]
-
-    elif item.category == "Contabilità / OIC":
-        base += [
-            "principio contabile",
-            "bilancio",
-            "scritture",
-        ]
-
-    return base
-
+# ============================================================
+# RIASSUNTO AUTOMATICO
+# ============================================================
 
 def create_extract_summary(
-    item: Item,
+    item: Item
 ) -> str:
 
     source_text = (
@@ -839,33 +1429,47 @@ def create_extract_summary(
     )
 
     if not sentences:
-        return item.summary[:MAX_SUMMARY_CHARS]
 
-    keys = important_keywords(item)
+        return (
+            item.summary[
+                :MAX_SUMMARY_CHARS
+            ]
+        )
+
+    keywords = list(
+        STRONG_TERMS.keys()
+    )
 
     ranked = []
 
     for index, sentence in enumerate(
         sentences
     ):
+
         low = sentence.lower()
 
         score = 0
 
-        for keyword in keys:
-            if keyword in low:
+        for keyword in keywords:
+
+            if term_matches(
+                low,
+                keyword
+            ):
                 score += 3
 
-        # Le prime frasi sono spesso descrittive.
-        if index < 4:
-            score += 4
+        # Inizio articolo normalmente
+        # contiene oggetto e contesto.
 
-        elif index < 8:
+        if index < 3:
+            score += 5
+
+        elif index < 7:
             score += 2
 
         if re.search(
-            r"\b"
-            r"(entra in vigore|"
+            r"\b("
+            r"entra in vigore|"
             r"decorre|"
             r"si applica|"
             r"modifica|"
@@ -873,33 +1477,32 @@ def create_extract_summary(
             r"stabilisce|"
             r"introduce|"
             r"abroga|"
-            r"sostituisce)"
-            r"\b",
-            low,
+            r"sostituisce|"
+            r"disciplina"
+            r")\b",
+            low
         ):
-            score += 4
+            score += 5
 
         ranked.append(
             (
                 score,
                 index,
-                sentence,
+                sentence
             )
         )
 
-    # Selezioniamo le frasi più informative.
     selected = sorted(
         ranked,
         key=lambda x: (
             -x[0],
-            x[1],
-        ),
+            x[1]
+        )
     )[:10]
 
-    # Poi le rimettiamo nell'ordine originale.
     selected = sorted(
         selected,
-        key=lambda x: x[1],
+        key=lambda x: x[1]
     )
 
     output = []
@@ -907,32 +1510,40 @@ def create_extract_summary(
     total = 0
 
     for _, _, sentence in selected:
+
         if sentence in output:
             continue
 
         if (
-            total + len(sentence)
+            total
+            + len(sentence)
             > MAX_SUMMARY_CHARS
         ):
             break
 
         output.append(sentence)
-        total += len(sentence) + 1
 
-    result = " ".join(output).strip()
+        total += (
+            len(sentence)
+            + 1
+        )
 
-    if not result:
-        result = item.summary
+    result = " ".join(
+        output
+    ).strip()
 
-    return result[:MAX_SUMMARY_CHARS]
+    return (
+        result
+        or item.summary
+    )[:MAX_SUMMARY_CHARS]
 
 
 # ============================================================
-# TAG ARGOMENTI
+# TAG
 # ============================================================
 
 def detect_topics(
-    item: Item,
+    item: Item
 ) -> list[str]:
 
     text = (
@@ -944,105 +1555,118 @@ def detect_topics(
     ).lower()
 
     mapping = [
-        ("IVA", [" iva ", "valore aggiunto"]),
+
+        (
+            "IVA",
+            [
+                "iva",
+                "imposta sul valore aggiunto"
+            ]
+        ),
+
         (
             "Fatturazione elettronica",
             [
                 "fattura elettronica",
-                "fatturazione elettronica",
-            ],
+                "fatturazione elettronica"
+            ]
         ),
-        ("IRPEF", ["irpef"]),
-        ("IRES", ["ires"]),
-        ("IRAP", ["irap"]),
+
+        (
+            "IRPEF",
+            ["irpef"]
+        ),
+
+        (
+            "IRES",
+            ["ires"]
+        ),
+
+        (
+            "IRAP",
+            ["irap"]
+        ),
+
         (
             "Dichiarazioni",
             [
-                "dichiarazione",
                 "modello redditi",
                 "730",
                 "770",
-            ],
+                "dichiarazione fiscale"
+            ]
         ),
+
         (
             "F24",
-            ["f24"],
+            ["f24"]
         ),
+
         (
             "Ritenute",
-            ["ritenut"],
+            ["ritenuta d'acconto"]
         ),
+
         (
             "Crediti d'imposta",
-            [
-                "credito d'imposta",
-                "crediti d'imposta",
-            ],
+            ["credito d'imposta"]
         ),
-        (
-            "Agevolazioni",
-            [
-                "agevolaz",
-                "bonus",
-            ],
-        ),
+
         (
             "Accertamento",
-            ["accert"],
+            ["accertamento"]
         ),
+
         (
             "Riscossione",
-            [
-                "riscoss",
-                "cartell",
-            ],
+            ["riscossione"]
         ),
+
         (
             "Contenzioso tributario",
             [
                 "contenzioso tributario",
-                "processo tributario",
-            ],
+                "processo tributario"
+            ]
         ),
+
         (
             "Contabilità",
-            ["contabil"],
+            [
+                "contabilità",
+                "scritture contabili"
+            ]
         ),
+
         (
             "Bilancio",
-            ["bilancio"],
+            ["bilancio d'esercizio"]
         ),
+
         (
             "OIC",
             [
                 "oic",
-                "principio contabile",
-            ],
-        ),
-        (
-            "Imposta di registro",
-            ["imposta di registro"],
-        ),
-        (
-            "Imposta di bollo",
-            ["imposta di bollo"],
-        ),
-        (
-            "IMU",
-            ["imu"],
+                "principio contabile"
+            ]
         ),
     ]
 
     topics = []
 
-    padded = f" {text} "
-
     for label, keys in mapping:
+
         if any(
-            key in padded
+            term_matches(
+                text,
+                key
+            )
             for key in keys
         ):
-            topics.append(label)
+
+            topics.append(
+                label
+            )
 
     return topics[:8]
 
@@ -1051,7 +1675,10 @@ def detect_topics(
 # ARRICCHIMENTO
 # ============================================================
 
-def enrich_item(item: Item) -> None:
+def enrich_item(
+    item: Item
+) -> None:
+
     item.full_text = extract_main_text(
         item.link
     )
@@ -1061,7 +1688,9 @@ def enrich_item(item: Item) -> None:
     )
 
     key = hashlib.sha256(
-        item.link.encode("utf-8")
+        item.link.encode(
+            "utf-8"
+        )
     ).hexdigest()[:20]
 
     item.local_filename = (
@@ -1069,84 +1698,121 @@ def enrich_item(item: Item) -> None:
     )
 
     item.local_url = (
-        f"{PUBLIC_BASE}/articoli/"
+        f"{PUBLIC_BASE}"
+        f"/articoli/"
         f"{item.local_filename}"
     )
 
 
 # ============================================================
-# HTML ARTICOLO INTERMEDIO
+# HTML
 # ============================================================
 
-def html_escape(value: str) -> str:
+def html_escape(
+    value: str
+) -> str:
+
     return html.escape(
         value or "",
-        quote=True,
+        quote=True
     )
 
 
 def build_article_page(
-    item: Item,
+    item: Item
 ) -> str:
 
-    topics = detect_topics(item)
+    topics = detect_topics(
+        item
+    )
 
-    topics_html = ""
-
-    if topics:
-        topics_html = "".join(
-            f"<span class='tag'>{html_escape(t)}</span>"
-            for t in topics
+    topics_html = "".join(
+        (
+            "<span class='tag'>"
+            + html_escape(t)
+            + "</span>"
         )
+        for t in topics
+    )
 
-    paragraphs = []
-
-    text = (
+    summary = (
         item.rich_summary
         or item.summary
     )
 
-    sentences = sentence_split(text)
+    paragraphs = []
 
-    if sentences:
-        current = []
+    sentences = sentence_split(
+        summary
+    )
 
-        for sentence in sentences:
-            current.append(sentence)
+    current = []
 
-            if len(" ".join(current)) > 450:
-                paragraphs.append(
-                    " ".join(current)
-                )
-                current = []
+    for sentence in sentences:
 
-        if current:
+        current.append(sentence)
+
+        if len(
+            " ".join(current)
+        ) > 450:
+
             paragraphs.append(
                 " ".join(current)
             )
 
-    else:
-        paragraphs = [text]
+            current = []
+
+    if current:
+
+        paragraphs.append(
+            " ".join(current)
+        )
+
+    if not paragraphs:
+
+        paragraphs = [
+            summary
+        ]
 
     paragraphs_html = "".join(
-        f"<p>{html_escape(p)}</p>"
+        (
+            "<p>"
+            + html_escape(p)
+            + "</p>"
+        )
         for p in paragraphs
         if p
     )
 
     return f"""<!doctype html>
+
 <html lang="it">
+
 <head>
+
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html_escape(item.title)}</title>
+
+<meta
+name="viewport"
+content="width=device-width,initial-scale=1"
+>
+
+<title>
+{html_escape(item.title)}
+</title>
 
 <style>
+
 body {{
     margin: 0;
     background: #f5f6f8;
     color: #202124;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Arial,
+        sans-serif;
     line-height: 1.65;
 }}
 
@@ -1160,7 +1826,9 @@ body {{
     background: white;
     border-radius: 18px;
     padding: 30px;
-    box-shadow: 0 4px 22px rgba(0,0,0,.07);
+    box-shadow:
+        0 4px 22px
+        rgba(0,0,0,.07);
 }}
 
 .source {{
@@ -1222,12 +1890,15 @@ p {{
     color: #737980;
     font-size: 13px;
 }}
+
 </style>
 
 </head>
+
 <body>
 
 <div class="container">
+
 <div class="card">
 
 <div class="source">
@@ -1239,16 +1910,26 @@ p {{
 </h1>
 
 <div class="meta">
+
 {html_escape(item.category)}
+
 &nbsp; • &nbsp;
-{html_escape(italian_date(item.published))}
+
+{html_escape(
+    italian_date(
+        item.published
+    )
+)}
+
 </div>
 
 <div class="tags">
 {topics_html}
 </div>
 
-<h2>In sintesi</h2>
+<h2>
+In sintesi
+</h2>
 
 {paragraphs_html}
 
@@ -1262,29 +1943,41 @@ Apri la fonte ufficiale →
 </a>
 
 <div class="note">
-Questa pagina contiene una sintesi automatica estratta dalla fonte ufficiale.
-Per valore giuridico, completezza e aggiornamenti fare sempre riferimento
-al documento originale.
+
+Sintesi automatica ricavata dal contenuto
+disponibile sulla fonte ufficiale.
+
+Per completezza, aggiornamenti e valore
+giuridico fare sempre riferimento al
+documento originale.
+
 </div>
 
 </div>
+
 </div>
 
 </body>
+
 </html>
 """
 
 
+# ============================================================
+# SCRITTURA PAGINE HTML
+# ============================================================
+
 def write_article_pages(
-    items: list[Item],
+    items: list[Item]
 ) -> None:
 
     ARTICLES_DIR.mkdir(
         parents=True,
-        exist_ok=True,
+        exist_ok=True
     )
 
     for item in items:
+
         if not item.local_filename:
             continue
 
@@ -1294,46 +1987,56 @@ def write_article_pages(
         )
 
         path.write_text(
-            build_article_page(item),
-            encoding="utf-8",
+            build_article_page(
+                item
+            ),
+            encoding="utf-8"
         )
 
 
 # ============================================================
-# RSS HTML
+# XML / RSS
 # ============================================================
 
-def xml_escape(value: str) -> str:
-    return html.escape(
-        value or "",
-        quote=True,
-    )
-
-
-def cdata(value: str) -> str:
-    """
-    Evita che una sequenza ']]>' rompa il CDATA.
-    """
-    return (
-        value
-        .replace(
-            "]]>",
-            "]]]]><![CDATA[>",
-        )
-    )
-
-
-def build_reader_content(
-    item: Item,
+def xml_escape(
+    value: str
 ) -> str:
 
-    topics = detect_topics(item)
+    return html.escape(
+        value or "",
+        quote=True
+    )
+
+
+def cdata(
+    value: str
+) -> str:
+
+    return value.replace(
+        "]]>",
+        "]]]]><![CDATA[>"
+    )
+
+
+# ============================================================
+# CONTENUTO RSS ESTESO
+# ============================================================
+
+def build_reader_content(
+    item: Item
+) -> str:
+
+    topics = detect_topics(
+        item
+    )
 
     topic_html = ""
 
     if topics:
+
         topic_html = (
-            "<p><strong>Argomenti:</strong> "
+            "<p>"
+            "<strong>Argomenti:</strong> "
             + " · ".join(
                 html_escape(x)
                 for x in topics
@@ -1347,100 +2050,154 @@ def build_reader_content(
     )
 
     return f"""
+
 <div>
 
 <p>
-<strong>{html_escape(item.source)}</strong>
+
+<strong>
+{html_escape(item.source)}
+</strong>
+
 <br>
+
 {html_escape(item.category)}
+
 <br>
-{html_escape(italian_date(item.published))}
+
+{html_escape(
+    italian_date(
+        item.published
+    )
+)}
+
 </p>
 
 {topic_html}
 
-<h3>In sintesi</h3>
+<h3>
+In sintesi
+</h3>
 
-<p style="line-height:1.6">
+<p style="line-height:1.65">
+
 {summary}
+
 </p>
 
 <p>
+
 <a href="{html_escape(item.link)}">
-<strong>Leggi il documento completo sulla fonte ufficiale →</strong>
+
+<strong>
+Leggi il documento completo sulla fonte ufficiale →
+</strong>
+
 </a>
+
 </p>
 
 <hr>
 
 <p style="font-size:12px;color:#777">
-Sintesi automatica ricavata dal contenuto disponibile sulla fonte ufficiale.
-Per il testo completo e avente valore ufficiale consultare sempre il documento originale.
+
+Sintesi automatica ricavata dal contenuto disponibile
+sulla fonte ufficiale.
+
+Per il testo completo e avente valore ufficiale
+consultare sempre il documento originale.
+
 </p>
 
 </div>
+
 """.strip()
 
 
 # ============================================================
-# RSS
+# GENERAZIONE RSS
 # ============================================================
 
 def build_rss(
-    items: list[Item],
+    items: list[Item]
 ) -> str:
 
-    f = CONFIG["feed"]
+    feed_config = CONFIG["feed"]
 
     now = datetime.now(
         timezone.utc
     )
 
-    feed_url = (
-        f"{PUBLIC_BASE}/feed.xml"
-    )
-
     chunks = [
+
         '<?xml version="1.0" encoding="UTF-8"?>',
 
-        '<rss version="2.0" '
-        'xmlns:content="http://purl.org/rss/1.0/modules/content/">',
+        (
+            '<rss version="2.0" '
+            'xmlns:content="'
+            'http://purl.org/rss/1.0/modules/content/'
+            '">'
+        ),
 
         "<channel>",
 
-        f"<title>{xml_escape(f['title'])}</title>",
+        (
+            "<title>"
+            + xml_escape(
+                feed_config["title"]
+            )
+            + "</title>"
+        ),
 
-        f"<link>{xml_escape(PUBLIC_BASE + '/')}</link>",
+        (
+            "<link>"
+            + xml_escape(
+                PUBLIC_BASE + "/"
+            )
+            + "</link>"
+        ),
 
-        f"<description>{xml_escape(f['description'])}</description>",
+        (
+            "<description>"
+            + xml_escape(
+                feed_config["description"]
+            )
+            + "</description>"
+        ),
 
         "<language>it-IT</language>",
 
-        f"<lastBuildDate>{format_datetime(now)}</lastBuildDate>",
+        (
+            "<lastBuildDate>"
+            + format_datetime(now)
+            + "</lastBuildDate>"
+        ),
 
-        f"<generator>FiscoContabilitaRSS 2.0</generator>",
+        "<generator>FiscoContabilitaRSS 3.0</generator>",
 
         "<ttl>60</ttl>",
     ]
 
     max_items = int(
-        f.get(
+        feed_config.get(
             "max_items",
-            250,
+            150
         )
     )
 
     for item in items[:max_items]:
 
         guid = hashlib.sha256(
-            item.link.encode()
+            item.link.encode(
+                "utf-8"
+            )
         ).hexdigest()
 
-        reader_content = (
-            build_reader_content(item)
+        content = build_reader_content(
+            item
         )
 
-        short_description = (
+        description = (
             item.rich_summary
             or item.summary
         )[:1800]
@@ -1451,43 +2208,81 @@ def build_rss(
         )
 
         chunks.extend([
+
             "<item>",
 
-            f"<title>{xml_escape('[' + item.source + '] ' + item.title)}</title>",
+            (
+                "<title>"
+                + xml_escape(
+                    "["
+                    + item.source
+                    + "] "
+                    + item.title
+                )
+                + "</title>"
+            ),
 
-            f"<link>{xml_escape(item_link)}</link>",
+            (
+                "<link>"
+                + xml_escape(
+                    item_link
+                )
+                + "</link>"
+            ),
 
             (
                 '<guid isPermaLink="false">'
-                f"{guid}"
-                "</guid>"
+                + guid
+                + "</guid>"
             ),
 
-            f"<pubDate>{format_datetime(item.published)}</pubDate>",
+            (
+                "<pubDate>"
+                + format_datetime(
+                    item.published
+                )
+                + "</pubDate>"
+            ),
 
-            f"<category>{xml_escape(item.category)}</category>",
+            (
+                "<category>"
+                + xml_escape(
+                    item.category
+                )
+                + "</category>"
+            ),
 
             (
                 "<description><![CDATA["
                 + cdata(
                     "<p><strong>"
-                    + html_escape(item.source)
+                    + html_escape(
+                        item.source
+                    )
                     + "</strong> · "
-                    + html_escape(item.category)
+                    + html_escape(
+                        item.category
+                    )
                     + "</p>"
                     + "<p>"
-                    + html_escape(short_description)
+                    + html_escape(
+                        description
+                    )
                     + "</p>"
-                    + "<p><a href=\""
-                    + html_escape(item.link)
-                    + "\">Leggi la fonte ufficiale →</a></p>"
+                    + '<p><a href="'
+                    + html_escape(
+                        item.link
+                    )
+                    + '">'
+                    + "Leggi la fonte ufficiale →"
+                    + "</a></p>"
                 )
                 + "]]></description>"
             ),
 
             (
                 "<content:encoded><![CDATA["
-                + cdata(reader_content)
+                + cdata(content)
                 + "]]></content:encoded>"
             ),
 
@@ -1499,7 +2294,10 @@ def build_rss(
         "</rss>",
     ])
 
-    return "\n".join(chunks) + "\n"
+    return (
+        "\n".join(chunks)
+        + "\n"
+    )
 
 
 # ============================================================
@@ -1511,24 +2309,52 @@ def main() -> None:
     all_items: list[Item] = []
 
     print(
-        "=== RACCOLTA FONTI ==="
+        "\n"
+        "=============================="
+    )
+
+    print(
+        " RACCOLTA FONTI"
+    )
+
+    print(
+        "=============================="
     )
 
     for src in CONFIG["sources"]:
 
-        got = collect_source(src)
+        got = collect_source(
+            src
+        )
 
         print(
             f"{src['name']}: "
-            f"{len(got)} elementi raccolti"
+            f"{len(got)} elementi"
         )
 
-        all_items.extend(got)
+        all_items.extend(
+            got
+        )
+
+    print(
+        "\n"
+        "=============================="
+    )
+
+    print(
+        " FILTRO RILEVANZA"
+    )
+
+    print(
+        "=============================="
+    )
+
+    filtered = apply_filter(
+        all_items
+    )
 
     filtered = dedupe(
-        apply_filter(
-            all_items
-        )
+        filtered
     )
 
     print(
@@ -1537,29 +2363,55 @@ def main() -> None:
     )
 
     print(
-        f"Pertinenti: "
+        f"Selezionati: "
         f"{len(filtered)}"
     )
 
-    # Limitiamo l'arricchimento ai contenuti
-    # che finiranno realmente nel feed.
+    print(
+        f"Scartati: "
+        f"{len(all_items) - len(filtered)}"
+    )
+
+    print(
+        "\n"
+        "ARTICOLI SELEZIONATI:"
+    )
+
+    for item in filtered[:30]:
+
+        print(
+            f"  [{item.score}] "
+            f"[{item.category}] "
+            f"{item.title[:110]}"
+        )
+
     max_items = int(
-        CONFIG["feed"]
-        .get(
+        CONFIG["feed"].get(
             "max_items",
-            250,
+            150
         )
     )
 
-    selected = filtered[:max_items]
+    selected = filtered[
+        :max_items
+    ]
 
     print(
-        "\n=== ARRICCHIMENTO CONTENUTI ==="
+        "\n"
+        "=============================="
+    )
+
+    print(
+        " ARRICCHIMENTO"
+    )
+
+    print(
+        "=============================="
     )
 
     for index, item in enumerate(
         selected,
-        start=1,
+        start=1
     ):
 
         print(
@@ -1569,23 +2421,29 @@ def main() -> None:
         )
 
         try:
-            enrich_item(item)
 
-        except Exception as e:
-            print(
-                f"[WARN] arricchimento: {e}",
-                file=sys.stderr,
+            enrich_item(
+                item
             )
 
-            # Anche se l'estrazione fallisce,
-            # il feed continua a funzionare.
+        except Exception as e:
+
+            print(
+                f"[WARN] "
+                f"arricchimento: "
+                f"{e}",
+                file=sys.stderr
+            )
+
             item.rich_summary = (
                 item.summary
                 or item.title
             )
 
             key = hashlib.sha256(
-                item.link.encode()
+                item.link.encode(
+                    "utf-8"
+                )
             ).hexdigest()[:20]
 
             item.local_filename = (
@@ -1593,13 +2451,14 @@ def main() -> None:
             )
 
             item.local_url = (
-                f"{PUBLIC_BASE}/articoli/"
+                f"{PUBLIC_BASE}"
+                f"/articoli/"
                 f"{item.local_filename}"
             )
 
     DOCS_DIR.mkdir(
         parents=True,
-        exist_ok=True,
+        exist_ok=True
     )
 
     write_article_pages(
@@ -1607,17 +2466,38 @@ def main() -> None:
     )
 
     OUT.write_text(
-        build_rss(selected),
-        encoding="utf-8",
+        build_rss(
+            selected
+        ),
+        encoding="utf-8"
     )
 
     print(
-        f"\nCreato feed: {OUT}"
+        "\n"
+        "=============================="
     )
 
     print(
-        f"Create pagine: "
+        " COMPLETATO"
+    )
+
+    print(
+        "=============================="
+    )
+
+    print(
+        f"Feed creato: "
+        f"{OUT}"
+    )
+
+    print(
+        f"Articoli nel feed: "
         f"{len(selected)}"
+    )
+
+    print(
+        f"URL pubblico: "
+        f"{PUBLIC_BASE}/feed.xml"
     )
 
 
